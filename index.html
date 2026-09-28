@@ -72,6 +72,7 @@
   .drop p { margin: 0; }
   .thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
   .thumbs img { height: 110px; width: auto; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+  .check { display: flex; gap: 8px; align-items: center; text-transform: none; letter-spacing: 0; font-size: .95rem; color: var(--ink); }
   .hint { font-size: .85rem; color: var(--muted); margin: 0; }
   .hint code { background: var(--paper); padding: 0 4px; border-radius: 3px; }
   .msg { font-size: .9rem; color: var(--warn); margin: 0; min-height: 1.2em; }
@@ -132,6 +133,7 @@
       <button id="cancelRecog" type="button" class="ghost" hidden>Cancelar</button>
       <span class="hint" id="recogInfo"></span>
     </div>
+    <label class="check" for="autoPdf"><input id="autoPdf" type="checkbox" checked> Gerar o PDF com os dedilhados assim que terminar de ler</label>
     <div class="row" id="keyRow" hidden>
       <label for="apiKey">Chave da API da Anthropic (fica só neste navegador)
         <input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…" class="txt">
@@ -171,7 +173,6 @@
       Notas fora da flauta sobem/descem uma oitava e ganham a marca <span style="color:var(--warn)">8va</span>.
     </p>
     <div class="row">
-      <button id="pdf" type="button">⬇ Baixar PDF</button>
       <button id="play" type="button" class="ghost">▶ Tocar</button>
       <button id="stop" type="button" class="ghost">■ Parar</button>
       <label for="tempo">Velocidade
@@ -179,6 +180,21 @@
       </label>
     </div>
     <p class="msg" id="msg" role="status"></p>
+  </section>
+
+  <section class="panel" aria-label="Baixar PDF">
+    <h2 class="step">3 · PDF com os dedilhados</h2>
+    <div class="row">
+      <button id="pdf" type="button">⬇ Baixar PDF</button>
+      <label for="orientation">Folha
+        <select id="orientation">
+          <option value="landscape" selected>deitada (como o modelo)</option>
+          <option value="portrait">em pé</option>
+        </select>
+      </label>
+    </div>
+    <p class="hint">O PDF segue o modelo da tabela de “Noite Feliz”: título em cima, nome da nota sobre cada flauta, furos pretos = tampados, “/” entre os compassos.</p>
+    <p class="msg" id="pdfMsg" role="status"></p>
   </section>
 
   <div class="legend">
@@ -356,6 +372,7 @@
         pages = []; showThumbs();
         await importMusicXml(xml);
         $('recogMsg').textContent = 'MusicXML importado. Confira as notas abaixo.';
+        if ($('autoPdf').checked) savePdf();
         return;
       }
       pages = [];
@@ -455,7 +472,8 @@
       state.composer = r.composer;
       $('song').value = '';
       render();
-      $('recogMsg').textContent = 'Pronto! Confira as notas no passo 2 e depois baixe o PDF.' + (r.notes ? ' Observação: ' + r.notes : '');
+      $('recogMsg').textContent = 'Pronto! Confira as notas no passo 2.' + (r.notes ? ' Observação: ' + r.notes : '');
+      if ($('autoPdf').checked) savePdf();
       $('notes').scrollIntoView({ block: 'center', behavior: 'smooth' });
     } catch (err) {
       if (err && (err.code === 'cancelled' || err.name === 'AbortError' || (err.constructor && err.constructor.name === 'APIUserAbortError'))) $('recogMsg').textContent = 'Cancelado.';
@@ -471,22 +489,26 @@
   let downloads = null;
   if (window.claude && window.claude.use) window.claude.use('downloads').then((d) => { downloads = d; }).catch(() => {});
 
-  $('pdf').addEventListener('click', async () => {
-    if (!window.jspdf) { $('msg').textContent = 'Não consegui carregar o gerador de PDF. Verifique a internet.'; return; }
+  async function savePdf() {
+    const out = $('pdfMsg');
+    if (!window.jspdf) { out.textContent = 'Não consegui carregar o gerador de PDF. Verifique a internet.'; return; }
+    if (!state.items.some((i) => i.type === 'note')) { out.textContent = 'Não há notas para colocar no PDF.'; return; }
     const title = $('titleInput').value || 'Sem título';
-    const doc = Flauta.buildPdf(window.jspdf.jsPDF, { title, composer: state.composer, items: state.items });
+    const doc = Flauta.buildPdf(window.jspdf.jsPDF, { title, composer: state.composer, items: state.items }, { orientation: $('orientation').value });
     const blob = doc.output('blob');
-    const filename = (title.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w\- ]+/g, '').trim() || 'flauta') + ' - flauta doce.pdf';
+    const filename = (title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\- ]+/g, '').trim() || 'flauta') + ' - flauta doce.pdf';
+    out.textContent = 'PDF pronto: ' + filename;
     if (downloads) {
-      try { await downloads.save({ filename, data: blob }); $('msg').textContent = ''; }
-      catch (e) { if (e.code !== 'declined') $('msg').textContent = 'Não foi possível salvar o PDF aqui.'; }
+      try { await downloads.save({ filename, data: blob }); }
+      catch (e) { out.textContent = e.code === 'declined' ? 'PDF não salvo. Clique em Baixar PDF quando quiser.' : 'Não foi possível salvar o PDF aqui.'; }
       return;
     }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = filename;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  });
+  }
+  $('pdf').addEventListener('click', savePdf);
 
   // ---- Controles ----
   $('song').addEventListener('change', () => loadSong($('song').value));

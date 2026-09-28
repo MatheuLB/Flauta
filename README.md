@@ -20,7 +20,7 @@ Arraste ou escolha uma **foto** (JPG/PNG), um **PDF** (até 6 páginas) ou um ar
 ### 2. Conferir as notas e baixar o PDF
 
 O reconhecimento pode errar: confira o texto e corrija o que for preciso — os diagramas mudam na hora.
-Depois clique em **Baixar PDF** para ter a folha pronta para imprimir (A4, sem quebrar compassos).
+Ao terminar a leitura, o PDF com os dedilhados é gerado automaticamente no modelo da tabela de "Noite Feliz" (A4 deitada; também dá para escolher em pé). O botão **Baixar PDF** gera de novo depois de correções.
 
 ### Formato do texto
 

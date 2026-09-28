@@ -294,17 +294,19 @@
   // ---------- PDF (jsPDF, desenho vetorial) ----------
 
   // Cria um PDF A4 com o título e os diagramas, quebrando linhas e páginas.
-  function buildPdf(JsPDF, song) {
-    const doc = new JsPDF({ unit: 'mm', format: 'a4' });
-    const PW = 210, PH = 297, M = 12;
-    const w = 9, s = w / 34, h = 150 * s; // 1 unidade do SVG = s mm
+  // Padrão: folha deitada, como a tabela de "Noite Feliz" usada de modelo.
+  function buildPdf(JsPDF, song, opts) {
+    const portrait = opts && opts.orientation === 'portrait';
+    const doc = new JsPDF({ unit: 'mm', format: 'a4', orientation: portrait ? 'portrait' : 'landscape' });
+    const PW = portrait ? 210 : 297, PH = portrait ? 297 : 210, M = 12;
+    const w = portrait ? 9 : 10, s = w / 34, h = 150 * s; // 1 unidade do SVG = s mm
     const gapNote = 1.2, sepW = 5, rowGap = 5;
     let x = M, y = M;
 
     doc.setFont('helvetica', 'bolditalic');
-    doc.setFontSize(22);
-    doc.text(song.title || 'Sem título', M, y + 7);
-    y += 10;
+    doc.setFontSize(26);
+    doc.text(song.title || 'Sem título', M, y + 8);
+    y += 12;
     if (song.composer) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
