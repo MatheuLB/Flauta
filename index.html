@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root {
     --paper: #fbfcfd;
@@ -64,6 +65,13 @@
   button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px solid var(--glow); outline-offset: 2px; }
   .file-btn { position: relative; overflow: hidden; }
   .file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .txt { font: inherit; text-transform: none; letter-spacing: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink); min-width: min(320px, 80vw); }
+  .step { font-family: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif; font-size: 1.15rem; margin: 0; }
+  .drop { border: 2px dashed var(--line); border-radius: 8px; padding: 18px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; background: var(--paper); }
+  .drop.over { border-color: var(--accent); }
+  .drop p { margin: 0; }
+  .thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .thumbs img { height: 110px; width: auto; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
   .hint { font-size: .85rem; color: var(--muted); margin: 0; }
   .hint code { background: var(--paper); padding: 0 4px; border-radius: 3px; }
   .msg { font-size: .9rem; color: var(--warn); margin: 0; min-height: 1.2em; }
@@ -108,16 +116,36 @@
 <div class="wrap">
   <header>
     <h1>Partitura → Flauta Doce</h1>
-    <p>Escreva as notas ou importe uma partitura em MusicXML e veja o dedilhado de cada nota, no mesmo formato da tabela de “Noite Feliz”. Flauta soprano, dedilhado barroco.</p>
+    <p>Envie a foto ou o PDF de uma partitura, confira as notas reconhecidas e baixe o resultado em PDF com o dedilhado de cada nota, no formato da tabela de “Noite Feliz”. Flauta soprano, dedilhado barroco.</p>
   </header>
 
-  <section class="panel" aria-label="Entrada">
+  <section class="panel" aria-label="Enviar partitura">
+    <h2 class="step">1 · Enviar partitura</h2>
+    <div class="drop" id="drop">
+      <p><strong>Arraste aqui</strong> ou escolha um arquivo: foto (JPG, PNG), PDF ou MusicXML.</p>
+      <span class="file-btn"><button type="button" tabindex="-1">Escolher arquivo…</button>
+        <input id="upload" type="file" accept="image/*,.pdf,application/pdf,.xml,.musicxml,.mxl" multiple aria-label="Escolher partitura"></span>
+    </div>
+    <div class="thumbs" id="thumbs"></div>
+    <div class="row" id="recogRow" hidden>
+      <button id="recognize" type="button">Reconhecer notas</button>
+      <button id="cancelRecog" type="button" class="ghost" hidden>Cancelar</button>
+      <span class="hint" id="recogInfo"></span>
+    </div>
+    <div class="row" id="keyRow" hidden>
+      <label for="apiKey">Chave da API da Anthropic (fica só neste navegador)
+        <input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-…" class="txt">
+      </label>
+    </div>
+    <p class="msg" id="recogMsg" role="status"></p>
+  </section>
+
+  <section class="panel" aria-label="Notas">
+    <h2 class="step">2 · Conferir notas</h2>
     <div class="row">
       <label for="song">Música pronta
         <select id="song"></select>
       </label>
-      <span class="file-btn"><button type="button" class="ghost" tabindex="-1">Importar MusicXML…</button>
-        <input id="file" type="file" accept=".xml,.musicxml,.mxl" aria-label="Importar arquivo MusicXML"></span>
       <label for="part" id="partWrap" hidden>Instrumento/parte
         <select id="part"></select>
       </label>
@@ -133,7 +161,7 @@
       </label>
     </div>
     <label for="titleInput">Título
-      <input id="titleInput" style="font:inherit;text-transform:none;letter-spacing:0;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink)">
+      <input id="titleInput" class="txt">
     </label>
     <textarea id="notes" spellcheck="false" aria-label="Notas"></textarea>
     <p class="hint">
@@ -143,7 +171,8 @@
       Notas fora da flauta sobem/descem uma oitava e ganham a marca <span style="color:var(--warn)">8va</span>.
     </p>
     <div class="row">
-      <button id="play" type="button">▶ Tocar</button>
+      <button id="pdf" type="button">⬇ Baixar PDF</button>
+      <button id="play" type="button" class="ghost">▶ Tocar</button>
       <button id="stop" type="button" class="ghost">■ Parar</button>
       <label for="tempo">Velocidade
         <input id="tempo" type="range" min="120" max="700" value="300">
@@ -245,24 +274,219 @@
     render();
   }
 
-  $('file').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      state.xmlDoc = await readScore(file);
-      const t = state.xmlDoc.querySelector('work-title, movement-title');
-      $('titleInput').value = (t && t.textContent.trim()) || file.name.replace(/\.[^.]+$/, '');
-      const parts = Flauta.listParts(state.xmlDoc);
-      $('part').innerHTML = '';
-      parts.forEach((p) => $('part').append(new Option(p.name, p.id)));
-      $('partWrap').hidden = parts.length < 2;
-      importFromDoc(parts[0] && parts[0].id);
-    } catch (err) {
-      $('msg').textContent = err.message;
-    }
-    e.target.value = '';
-  });
+  async function importMusicXml(file) {
+    state.xmlDoc = await readScore(file);
+    const t = state.xmlDoc.querySelector('work-title, movement-title');
+    $('titleInput').value = (t && t.textContent.trim()) || file.name.replace(/\.[^.]+$/, '');
+    const parts = Flauta.listParts(state.xmlDoc);
+    $('part').innerHTML = '';
+    parts.forEach((p) => $('part').append(new Option(p.name, p.id)));
+    $('partWrap').hidden = parts.length < 2;
+    importFromDoc(parts[0] && parts[0].id);
+  }
   $('part').addEventListener('change', () => importFromDoc($('part').value));
+
+  // ---- Envio de foto / PDF ----
+  const MAX_PAGES = 6;
+  let pages = [];          // Blobs JPEG/PNG das páginas
+  let baseName = '';
+
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      const el = document.createElement('script');
+      el.src = src; el.onload = res;
+      el.onerror = () => rej(new Error('Não consegui carregar o leitor de PDF. Verifique a internet.'));
+      document.head.append(el);
+    });
+  }
+
+  async function pdfToImages(file) {
+    if (!window.pdfjsLib) {
+      // O worker carregado como script faz o pdf.js rodar sem Web Worker externo.
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const out = [];
+    for (let i = 1; i <= Math.min(pdf.numPages, MAX_PAGES); i++) {
+      const page = await pdf.getPage(i);
+      const vp0 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: Math.min(2.5, 1800 / vp0.width) });
+      const c = document.createElement('canvas');
+      c.width = vp.width; c.height = vp.height;
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: g, viewport: vp }).promise;
+      out.push(await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9)));
+    }
+    return { images: out, total: pdf.numPages };
+  }
+
+  // Reduz fotos grandes (celular) para no máximo 2000 px no lado maior.
+  async function normalizeImage(file) {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(bmp, 0, 0, c.width, c.height);
+    return new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+  }
+
+  function showThumbs() {
+    $('thumbs').innerHTML = '';
+    pages.forEach((b, i) => {
+      const img = new Image();
+      img.src = URL.createObjectURL(b);
+      img.alt = 'Página ' + (i + 1);
+      $('thumbs').append(img);
+    });
+    $('recogRow').hidden = !pages.length;
+  }
+
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    $('recogMsg').textContent = '';
+    try {
+      const xml = files.find((f) => /\.(xml|musicxml|mxl)$/i.test(f.name));
+      if (xml) {
+        pages = []; showThumbs();
+        await importMusicXml(xml);
+        $('recogMsg').textContent = 'MusicXML importado. Confira as notas abaixo.';
+        return;
+      }
+      pages = [];
+      baseName = files[0].name.replace(/\.[^.]+$/, '');
+      for (const f of files) {
+        if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') {
+          $('recogMsg').textContent = 'Lendo o PDF…';
+          const r = await pdfToImages(f);
+          pages.push(...r.images);
+          if (r.total > MAX_PAGES) $('recogMsg').textContent = `O PDF tem ${r.total} páginas; vou usar só as ${MAX_PAGES} primeiras.`;
+          else $('recogMsg').textContent = '';
+        } else if (f.type.startsWith('image/')) {
+          pages.push(await normalizeImage(f));
+        }
+      }
+      pages = pages.slice(0, MAX_PAGES);
+      if (!pages.length) throw new Error('Esse tipo de arquivo não é aceito. Use foto (JPG/PNG), PDF ou MusicXML.');
+      showThumbs();
+      $('recogInfo').textContent = `${pages.length} página(s) pronta(s).`;
+    } catch (err) {
+      $('recogMsg').textContent = err.message || String(err);
+    }
+  }
+
+  $('upload').addEventListener('change', (e) => { handleFiles(e.target.files); e.target.value = ''; });
+  const drop = $('drop');
+  ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', (e) => handleFiles(e.dataTransfer.files));
+
+  // ---- Reconhecimento ----
+  // Dentro do claude.ai usa a conta de quem está vendo (capacidade "sample");
+  // aberto como arquivo local, usa a API da Anthropic com a chave do usuário.
+  let sampleFn = null;
+  let abortCtl = null;
+  if (window.claude && window.claude.use) {
+    window.claude.use('sample').then(async (fn) => {
+      if (!fn) return;
+      const lim = await fn.limits().catch(() => null);
+      if (lim && lim.images) { sampleFn = fn; sampleFn.maxImages = lim.images.maxCount; $('keyRow').hidden = true; }
+    }).catch(() => {});
+  }
+  setTimeout(() => { if (!sampleFn) $('keyRow').hidden = false; }, window.claude ? 11000 : 0);
+  try { $('apiKey').value = localStorage.getItem('flauta.apiKey') || ''; } catch (e) {}
+  $('apiKey').addEventListener('change', () => { try { localStorage.setItem('flauta.apiKey', $('apiKey').value.trim()); } catch (e) {} });
+
+  function blobToBase64(b) {
+    return new Promise((res) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.readAsDataURL(b); });
+  }
+
+  async function recognizeWithApi(images, signal) {
+    const key = $('apiKey').value.trim();
+    if (!key) throw new Error('Informe a chave da API da Anthropic (console.anthropic.com) para reconhecer a partitura.');
+    const { default: Anthropic } = await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm');
+    const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+    const content = [];
+    for (const b of images) content.push({ type: 'image', source: { type: 'base64', media_type: b.type || 'image/jpeg', data: await blobToBase64(b) } });
+    content.push({ type: 'text', text: Flauta.RECOGNIZE_PROMPT });
+    const stream = client.beta.messages.stream({
+      model: 'claude-opus-5',
+      max_tokens: 32000,
+      thinking: { type: 'adaptive' },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      messages: [{ role: 'user', content }],
+    }, { signal });
+    const msg = await stream.finalMessage();
+    if (msg.stop_reason === 'refusal') throw new Error('O pedido foi recusado. Tente outra imagem.');
+    if (msg.stop_reason === 'max_tokens') throw new Error('A partitura é longa demais para uma vez só. Envie menos páginas.');
+    const text = msg.content.filter((c) => c.type === 'text').map((c) => c.text).join('');
+    return Flauta.parseRecognition(text);
+  }
+
+  async function recognizeWithSample(images, signal) {
+    const imgs = images.slice(0, sampleFn.maxImages || images.length);
+    const raw = await sampleFn.json(Flauta.RECOGNIZE_PROMPT, { images: imgs, modelTier: 'complex', signal });
+    return Flauta.parseRecognition(raw);
+  }
+
+  const SAMPLE_ERRORS = {
+    not_granted: 'O reconhecimento precisa da sua permissão para usar o Claude.',
+    rate_limited: 'Muitos pedidos seguidos. Espere um pouco e tente de novo.',
+    invalid_json: 'A resposta veio incompleta. Tente de novo ou envie menos páginas.',
+  };
+
+  $('recognize').addEventListener('click', async () => {
+    if (!pages.length) return;
+    const btn = $('recognize');
+    btn.disabled = true; $('cancelRecog').hidden = false;
+    abortCtl = new AbortController();
+    const t0 = Date.now();
+    const tick = setInterval(() => { $('recogMsg').textContent = `Lendo a partitura… ${Math.round((Date.now() - t0) / 1000)} s (pode levar 1–2 minutos)`; }, 1000);
+    try {
+      const r = sampleFn ? await recognizeWithSample(pages, abortCtl.signal) : await recognizeWithApi(pages, abortCtl.signal);
+      $('notes').value = r.text;
+      $('titleInput').value = r.title || baseName;
+      state.composer = r.composer;
+      $('song').value = '';
+      render();
+      $('recogMsg').textContent = 'Pronto! Confira as notas no passo 2 e depois baixe o PDF.' + (r.notes ? ' Observação: ' + r.notes : '');
+      $('notes').scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } catch (err) {
+      if (err && (err.code === 'cancelled' || err.name === 'AbortError' || (err.constructor && err.constructor.name === 'APIUserAbortError'))) $('recogMsg').textContent = 'Cancelado.';
+      else $('recogMsg').textContent = (err && SAMPLE_ERRORS[err.code]) || (err && err.message) || 'Não consegui ler a partitura.';
+    } finally {
+      clearInterval(tick);
+      btn.disabled = false; $('cancelRecog').hidden = true;
+    }
+  });
+  $('cancelRecog').addEventListener('click', () => abortCtl && abortCtl.abort());
+
+  // ---- Baixar PDF ----
+  let downloads = null;
+  if (window.claude && window.claude.use) window.claude.use('downloads').then((d) => { downloads = d; }).catch(() => {});
+
+  $('pdf').addEventListener('click', async () => {
+    if (!window.jspdf) { $('msg').textContent = 'Não consegui carregar o gerador de PDF. Verifique a internet.'; return; }
+    const title = $('titleInput').value || 'Sem título';
+    const doc = Flauta.buildPdf(window.jspdf.jsPDF, { title, composer: state.composer, items: state.items });
+    const blob = doc.output('blob');
+    const filename = (title.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w\- ]+/g, '').trim() || 'flauta') + ' - flauta doce.pdf';
+    if (downloads) {
+      try { await downloads.save({ filename, data: blob }); $('msg').textContent = ''; }
+      catch (e) { if (e.code !== 'declined') $('msg').textContent = 'Não foi possível salvar o PDF aqui.'; }
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
 
   // ---- Controles ----
   $('song').addEventListener('change', () => loadSong($('song').value));

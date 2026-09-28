@@ -291,7 +291,139 @@
       body + mark + `</svg>`;
   }
 
-  const api = { FINGERINGS, MIN, MAX, parseText, musicXmlToText, listParts, noteSVG, displayName, textToken };
+  // ---------- PDF (jsPDF, desenho vetorial) ----------
+
+  // Cria um PDF A4 com o título e os diagramas, quebrando linhas e páginas.
+  function buildPdf(JsPDF, song) {
+    const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+    const PW = 210, PH = 297, M = 12;
+    const w = 9, s = w / 34, h = 150 * s; // 1 unidade do SVG = s mm
+    const gapNote = 1.2, sepW = 5, rowGap = 5;
+    let x = M, y = M;
+
+    doc.setFont('helvetica', 'bolditalic');
+    doc.setFontSize(22);
+    doc.text(song.title || 'Sem título', M, y + 7);
+    y += 10;
+    if (song.composer) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(90);
+      doc.text(song.composer, M, y + 3);
+      doc.setTextColor(0);
+      y += 6;
+    }
+    y += 2;
+
+    const newLine = () => { x = M; y += h + rowGap; if (y + h > PH - M) { doc.addPage(); y = M; } };
+    let lineHasContent = false;
+
+    const hole = (cx, cy, r, st) => {
+      const X = x + cx * s, Y = y + cy * s, R = r * s;
+      doc.setLineWidth(0.18);
+      if (st === 'x') { doc.circle(X, Y, R, 'FD'); return; }
+      doc.circle(X, Y, R, 'S');
+      if (st === 'h') { // metade esquerda preenchida
+        const pts = [];
+        for (let i = 0; i <= 16; i++) {
+          const a = Math.PI / 2 + (Math.PI * i) / 16;
+          pts.push([X + R * Math.cos(a), Y - R * Math.sin(a)]);
+        }
+        const segs = [];
+        for (let i = 1; i < pts.length; i++) segs.push([pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]]);
+        doc.lines(segs, pts[0][0], pts[0][1], [1, 1], 'F', true);
+      }
+    };
+
+    const drawNote = (it) => {
+      const f = (it.fingering || '? ??? ????').replace(/ /g, '');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.text(it.label.replace(/♯/g, '#').replace(/♭/g, 'b'), x + 22 * s, y + 9 * s, { align: 'center' });
+      doc.setLineWidth(0.25);
+      doc.roundedRect(x + 13 * s, y + 19 * s, 18 * s, 112 * s, 6 * s, 6 * s, 'S');
+      doc.setDrawColor(170);
+      doc.setLineWidth(0.12);
+      doc.line(x + 15 * s, y + 70 * s, x + 29 * s, y + 70 * s);
+      doc.setDrawColor(0);
+      doc.setFillColor(0);
+      hole(6, 28, 4.6, f[0] === '?' ? 'o' : f[0]);
+      [33, 47, 61, 79, 93].forEach((cy, i) => hole(22, cy, 4.8, f[i + 1]));
+      [[108, f[6]], [121, f[7]]].forEach(([cy, st]) => {
+        hole(19.5, cy, 3.6, st === 'x' || st === 'h' ? 'x' : 'o');
+        hole(27, cy, 2.4, st === 'x' ? 'x' : 'o');
+      });
+      if (it.shifted) {
+        doc.setFontSize(5);
+        doc.setTextColor(160, 70, 30);
+        doc.text(it.shifted > 0 ? '8va+' : '8va-', x + 22 * s, y + 146 * s, { align: 'center' });
+        doc.setTextColor(0);
+      }
+    };
+
+    // Agrupa as notas entre separadores para não quebrar a linha no meio de um compasso.
+    const groups = [];
+    let cur = { notes: [], sep: false };
+    song.items.forEach((it) => {
+      if (it.type === 'note') cur.notes.push(it);
+      else if (it.type === 'sep' && cur.notes.length) { cur.sep = true; groups.push(cur); cur = { notes: [], sep: false }; }
+    });
+    if (cur.notes.length) groups.push(cur);
+
+    groups.forEach((g) => {
+      const gw = g.notes.length * (w + gapNote) + (g.sep ? sepW : 0);
+      if (lineHasContent && x + gw > PW - M) { newLine(); lineHasContent = false; }
+      g.notes.forEach((it) => {
+        if (x + w > PW - M) newLine();
+        drawNote(it);
+        x += w + gapNote;
+        lineHasContent = true;
+      });
+      if (g.sep) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(18);
+        doc.text('/', x + 0.5, y + h - 1);
+        x += sepW;
+      }
+    });
+    return doc;
+  }
+
+  // ---------- Reconhecimento de partitura (imagem) ----------
+
+  const RECOGNIZE_PROMPT = `Você vai ler a(s) imagem(ns) de uma partitura e transcrever a MELODIA para tocar na flauta doce soprano.
+
+Regras:
+- Pegue apenas a linha melódica principal: a voz mais aguda da pauta de clave de sol (em partitura de piano, a mão direita; em acordes, a nota mais aguda).
+- Escreva a altura real de cada nota, aplicando a armadura de clave e os acidentes do compasso.
+- Formato de cada nota: nome em português + acidente + duração.
+  - Oitava 4 (do Dó central até o Si acima dele): primeira letra maiúscula: Dó Ré Mi Fá Sol Lá Si
+  - Oitava 5 (do Dó acima do Dó central até o Si seguinte): tudo maiúsculo: DÓ RÉ MI FÁ SOL LÁ SI
+  - Outras oitavas: nome + número, ex.: Lá3, Mi6
+  - Acidentes: # para sustenido, b para bemol, ex.: Ré#, SIb
+  - Duração: ":n" relativo à figura mais comum da música (a figura mais comum não leva sufixo). Ex.: se a mais comum for colcheia, uma semínima é ":2" e uma semicolcheia ":0.5". Some a pausa que vem logo depois de uma nota à duração dessa nota.
+- Separe cada compasso com " / " e comece uma nova linha a cada 4 compassos.
+- Não expanda repetições; quando houver ritornelo ou casa 1/2, coloque uma linha de comentário começando com "//" explicando (ex.: "// repetir do início").
+- Se algo estiver ilegível, faça a melhor leitura possível e avise em "observacoes".
+
+Responda somente com um JSON neste formato:
+{"titulo": "...", "compositor": "...", "notas": "MI RÉ# / MI RÉ# MI Si RÉ DÓ / Lá:3 Dó Mi Lá /\\n...", "observacoes": "..."}`;
+
+  function parseRecognition(raw) {
+    let obj = raw;
+    if (typeof raw === 'string') {
+      const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+      if (a < 0 || b < a) throw new Error('A resposta não veio no formato esperado.');
+      obj = JSON.parse(raw.slice(a, b + 1));
+    }
+    if (!obj || typeof obj.notas !== 'string' || !obj.notas.trim()) throw new Error('Nenhuma nota foi reconhecida na imagem.');
+    return { title: obj.titulo || '', composer: obj.compositor || '', text: obj.notas.trim(), notes: obj.observacoes || '' };
+  }
+
+  const api = {
+    FINGERINGS, MIN, MAX, parseText, musicXmlToText, listParts, noteSVG, displayName, textToken,
+    buildPdf, RECOGNIZE_PROMPT, parseRecognition,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Flauta = api;
 })(typeof window !== 'undefined' ? window : globalThis);
