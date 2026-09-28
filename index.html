@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Partitura para Flauta Doce</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --paper: #fbfcfd;
+    --surface: #eef2f5;
+    --line: #cfd8df;
+    --ink: #16202a;
+    --muted: #5b6b78;
+    --accent: #1f5f7a;
+    --accent-ink: #ffffff;
+    --hole-open: #ffffff;
+    --hole-ink: #111418;
+    --glow: #ffd84d;
+    --warn: #a4471d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --paper: #11171c; --surface: #1a232b; --line: #2e3b46; --ink: #e6edf2; --muted: #93a4b1;
+      --accent: #6fb3d2; --accent-ink: #0b1216; --hole-open: #11171c; --hole-ink: #e6edf2;
+      --glow: #8a6d00; --warn: #f0a07a;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #11171c; --surface: #1a232b; --line: #2e3b46; --ink: #e6edf2; --muted: #93a4b1;
+    --accent: #6fb3d2; --accent-ink: #0b1216; --hole-open: #11171c; --hole-ink: #e6edf2;
+    --glow: #8a6d00; --warn: #f0a07a;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 16px/1.5 "Atkinson Hyperlegible", system-ui, sans-serif;
+    padding-inline: 16px; padding-block: 20px 48px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 20px; }
+  header h1 {
+    font-family: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+    font-weight: 800; font-size: clamp(1.7rem, 4vw, 2.4rem); line-height: 1.1; margin: 0;
+    text-wrap: balance;
+  }
+  header p { margin: 6px 0 0; color: var(--muted); max-width: 65ch; }
+  .panel { background: var(--surface); border-radius: 10px; padding: 16px; display: grid; gap: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; }
+  label { display: grid; gap: 4px; font-size: .8rem; color: var(--muted); letter-spacing: .03em; text-transform: uppercase; }
+  select, input[type=file], textarea, button, input[type=range] { font: inherit; color: var(--ink); }
+  select, textarea { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  textarea { width: 100%; min-height: 150px; font: 14px/1.6 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; resize: vertical; }
+  button {
+    border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+    border-radius: 6px; padding: 7px 14px; cursor: pointer; font-weight: 700;
+  }
+  button.ghost { background: transparent; color: var(--accent); }
+  button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px solid var(--glow); outline-offset: 2px; }
+  .file-btn { position: relative; overflow: hidden; }
+  .file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .hint { font-size: .85rem; color: var(--muted); margin: 0; }
+  .hint code { background: var(--paper); padding: 0 4px; border-radius: 3px; }
+  .msg { font-size: .9rem; color: var(--warn); margin: 0; min-height: 1.2em; }
+
+  .sheet { border-top: 2px solid var(--ink); padding-top: 16px; display: grid; gap: 6px; }
+  .sheet h2 {
+    font-family: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+    font-style: italic; font-weight: 800; font-size: clamp(1.6rem, 4vw, 2.2rem); margin: 0;
+  }
+  .sheet .by { margin: 0 0 8px; color: var(--muted); font-size: .9rem; }
+  .line { display: flex; flex-wrap: wrap; align-items: flex-end; row-gap: 14px; margin-bottom: 10px; }
+  .fing { width: calc(var(--size, 44px)); height: auto; display: block; border-radius: 4px; transition: background .12s; }
+  .fing.on { background: var(--glow); }
+  .fing .nm { font-size: 8.2px; text-anchor: middle; fill: var(--ink); font-family: "Atkinson Hyperlegible", system-ui, sans-serif; }
+  .fing .oct { font-size: 7px; text-anchor: middle; fill: var(--warn); font-family: system-ui, sans-serif; }
+  .fing .body { fill: var(--hole-open); stroke: var(--hole-ink); stroke-width: 1.1; }
+  .fing .split { stroke: var(--line); stroke-width: .8; }
+  .fing .h-open { fill: var(--hole-open); stroke: var(--hole-ink); stroke-width: .9; }
+  .fing .h-closed { fill: var(--hole-ink); stroke: var(--hole-ink); stroke-width: .9; }
+  .fing .h-fill { fill: var(--hole-ink); }
+  .fing .h-ring { fill: none; stroke: var(--hole-ink); stroke-width: .9; }
+  .slash { font-size: calc(var(--size, 44px) * .6); color: var(--ink); align-self: flex-end; padding: 0 4px 2px; line-height: 1; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: .85rem; color: var(--muted); align-items: center; }
+  .legend span { display: inline-flex; gap: 6px; align-items: center; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--hole-ink); display: inline-block; }
+  .dot.x { background: var(--hole-ink); }
+  .dot.h { background: linear-gradient(90deg, var(--hole-ink) 50%, var(--hole-open) 50%); }
+
+  details summary { cursor: pointer; font-weight: 700; }
+  .chart { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+  @media print {
+    .panel, header p, .legend, details { display: none !important; }
+    body { background: #fff; color: #000; }
+    .fing.on { background: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .fing { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Partitura → Flauta Doce</h1>
+    <p>Escreva as notas ou importe uma partitura em MusicXML e veja o dedilhado de cada nota, no mesmo formato da tabela de “Noite Feliz”. Flauta soprano, dedilhado barroco.</p>
+  </header>
+
+  <section class="panel" aria-label="Entrada">
+    <div class="row">
+      <label for="song">Música pronta
+        <select id="song"></select>
+      </label>
+      <span class="file-btn"><button type="button" class="ghost" tabindex="-1">Importar MusicXML…</button>
+        <input id="file" type="file" accept=".xml,.musicxml,.mxl" aria-label="Importar arquivo MusicXML"></span>
+      <label for="part" id="partWrap" hidden>Instrumento/parte
+        <select id="part"></select>
+      </label>
+      <label for="transpose">Oitava
+        <select id="transpose">
+          <option value="-12">1 abaixo</option>
+          <option value="0" selected>original</option>
+          <option value="12">1 acima</option>
+        </select>
+      </label>
+      <label for="size">Tamanho
+        <input id="size" type="range" min="30" max="80" value="46">
+      </label>
+    </div>
+    <label for="titleInput">Título
+      <input id="titleInput" style="font:inherit;text-transform:none;letter-spacing:0;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink)">
+    </label>
+    <textarea id="notes" spellcheck="false" aria-label="Notas"></textarea>
+    <p class="hint">
+      <code>Dó Ré Mi Fá Sol Lá Si</code> = oitava grave · <code>DÓ RÉ MI FÁ</code> = oitava aguda ·
+      <code>Ré#</code> / <code>Sib</code> = acidentes · <code>/</code> = separador · nova linha = nova linha ·
+      <code>:2</code> = nota 2× mais longa (só para tocar) · também vale <code>C4 D#5 Bb4</code>.
+      Notas fora da flauta sobem/descem uma oitava e ganham a marca <span style="color:var(--warn)">8va</span>.
+    </p>
+    <div class="row">
+      <button id="play" type="button">▶ Tocar</button>
+      <button id="stop" type="button" class="ghost">■ Parar</button>
+      <label for="tempo">Velocidade
+        <input id="tempo" type="range" min="120" max="700" value="300">
+      </label>
+    </div>
+    <p class="msg" id="msg" role="status"></p>
+  </section>
+
+  <div class="legend">
+    <span><i class="dot x"></i> tampado</span>
+    <span><i class="dot"></i> aberto</span>
+    <span><i class="dot h"></i> meio-furo (polegar entreaberto)</span>
+    <span>Círculo à esquerda = polegar (atrás) · furos 1–3 mão esquerda, 4–7 mão direita</span>
+  </div>
+
+  <section class="sheet" id="sheet" aria-live="polite"></section>
+
+  <details>
+    <summary>Tabela completa de dedilhados</summary>
+    <div class="chart" id="chart"></div>
+  </details>
+</div>
+
+<script src="flauta.js"></script>
+<script src="songs.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const songs = window.FLAUTA_SONGS;
+  const state = { title: '', composer: '', items: [], xmlDoc: null };
+
+  songs.forEach((s) => $('song').append(new Option(s.title, s.id)));
+  $('song').append(new Option('(texto livre)', ''));
+
+  function loadSong(id) {
+    const s = songs.find((x) => x.id === id);
+    if (!s) return;
+    $('notes').value = s.text;
+    $('titleInput').value = s.title;
+    state.composer = s.composer;
+    $('tempo').value = s.tempo;
+    render();
+  }
+
+  function render() {
+    const { items, errors } = Flauta.parseText($('notes').value, { transpose: +$('transpose').value });
+    state.items = items;
+    const sheet = $('sheet');
+    sheet.style.setProperty('--size', $('size').value + 'px');
+    let html = `<h2>${esc($('titleInput').value || 'Sem título')}</h2>`;
+    if (state.composer) html += `<p class="by">${esc(state.composer)}</p>`;
+    html += '<div class="line">';
+    let idx = 0;
+    items.forEach((it) => {
+      if (it.type === 'br') html += '</div><div class="line">';
+      else if (it.type === 'sep') html += '<span class="slash">/</span>';
+      else if (it.type === 'note') html += Flauta.noteSVG(it).replace('<svg ', `<svg data-i="${idx++}" `);
+    });
+    html += '</div>';
+    sheet.innerHTML = html;
+    const shifted = items.filter((i) => i.shifted).length;
+    const msgs = [];
+    if (errors.length) msgs.push('Não entendi: ' + errors.slice(0, 8).join(', ') + (errors.length > 8 ? '…' : ''));
+    if (shifted) msgs.push(`${shifted} nota(s) fora da extensão foram trocadas de oitava (marca 8va).`);
+    $('msg').textContent = msgs.join(' ');
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  // ---- MusicXML ----
+  async function readScore(file) {
+    let xml;
+    if (/\.mxl$/i.test(file.name)) {
+      if (!window.JSZip) throw new Error('Não consegui abrir .mxl (compactado). Exporte como .musicxml sem compactar.');
+      const zip = await JSZip.loadAsync(file);
+      const container = zip.file('META-INF/container.xml');
+      let path = null;
+      if (container) {
+        const c = new DOMParser().parseFromString(await container.async('string'), 'application/xml');
+        const rf = c.querySelector('rootfile');
+        path = rf && rf.getAttribute('full-path');
+      }
+      if (!path) path = Object.keys(zip.files).find((n) => /\.(xml|musicxml)$/i.test(n) && !n.startsWith('META-INF'));
+      xml = await zip.file(path).async('string');
+    } else {
+      xml = await file.text();
+    }
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    if (doc.querySelector('parsererror')) throw new Error('O arquivo não é um XML válido.');
+    if (doc.querySelector('score-timewise')) throw new Error('Formato "timewise" não suportado; exporte o MusicXML padrão (partwise).');
+    return doc;
+  }
+
+  function importFromDoc(partId) {
+    const r = Flauta.musicXmlToText(state.xmlDoc, { partId, measuresPerLine: 4 });
+    $('notes').value = r.text;
+    $('song').value = '';
+    state.composer = r.octaveShift ? `Importado de MusicXML (oitava ajustada ${r.octaveShift > 0 ? '+' : ''}${r.octaveShift})` : 'Importado de MusicXML';
+    render();
+  }
+
+  $('file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      state.xmlDoc = await readScore(file);
+      const t = state.xmlDoc.querySelector('work-title, movement-title');
+      $('titleInput').value = (t && t.textContent.trim()) || file.name.replace(/\.[^.]+$/, '');
+      const parts = Flauta.listParts(state.xmlDoc);
+      $('part').innerHTML = '';
+      parts.forEach((p) => $('part').append(new Option(p.name, p.id)));
+      $('partWrap').hidden = parts.length < 2;
+      importFromDoc(parts[0] && parts[0].id);
+    } catch (err) {
+      $('msg').textContent = err.message;
+    }
+    e.target.value = '';
+  });
+  $('part').addEventListener('change', () => importFromDoc($('part').value));
+
+  // ---- Controles ----
+  $('song').addEventListener('change', () => loadSong($('song').value));
+  ['notes', 'titleInput'].forEach((id) => $(id).addEventListener('input', render));
+  ['transpose', 'size'].forEach((id) => $(id).addEventListener('input', render));
+
+  // ---- Tocar (WebAudio) ----
+  let ctx = null, timers = [];
+  function stop() {
+    timers.forEach(clearTimeout); timers = [];
+    document.querySelectorAll('.fing.on').forEach((el) => el.classList.remove('on'));
+  }
+  function play() {
+    stop();
+    ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    const unit = (800 - +$('tempo').value) / 1000 * 0.6 + 0.08; // segundos por unidade
+    const t0 = ctx.currentTime + 0.1;
+    let t = 0, idx = 0;
+    state.items.forEach((it) => {
+      if (it.type === 'rest') { t += it.dur * unit; return; }
+      if (it.type !== 'note') return;
+      const len = it.dur * unit;
+      const freq = 440 * Math.pow(2, (it.midi + 12 - 69) / 12); // soprano soa uma oitava acima
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.type = 'triangle'; osc.frequency.value = freq;
+      g.gain.setValueAtTime(0, t0 + t);
+      g.gain.linearRampToValueAtTime(0.22, t0 + t + 0.02);
+      g.gain.setValueAtTime(0.22, t0 + t + Math.max(0.03, len - 0.05));
+      g.gain.linearRampToValueAtTime(0, t0 + t + len - 0.01);
+      osc.connect(g).connect(ctx.destination);
+      osc.start(t0 + t); osc.stop(t0 + t + len);
+      const i = idx++;
+      timers.push(setTimeout(() => {
+        document.querySelectorAll('.fing.on').forEach((el) => el.classList.remove('on'));
+        const el = document.querySelector(`.fing[data-i="${i}"]`);
+        if (el) { el.classList.add('on'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+      }, (t + 0.1) * 1000));
+      t += len;
+    });
+    timers.push(setTimeout(stop, (t + 0.3) * 1000));
+  }
+  $('play').addEventListener('click', play);
+  $('stop').addEventListener('click', stop);
+
+  // ---- Tabela completa ----
+  const chart = [];
+  const sharpSteps = [[0,0],[0,1],[1,0],[1,1],[2,0],[3,0],[3,1],[4,0],[4,1],[5,0],[5,1],[6,0]];
+  for (let m = Flauta.MIN; m <= Flauta.MAX; m++) {
+    const [step, alter] = sharpSteps[m % 12];
+    const octave = Math.floor(m / 12) - 1;
+    chart.push(Flauta.noteSVG({ label: Flauta.displayName(step, alter, octave), fingering: Flauta.FINGERINGS[m] }));
+  }
+  $('chart').innerHTML = chart.join('');
+  $('chart').style.setProperty('--size', '46px');
+
+  loadSong(songs[0].id);
+})();
+</script>
+</body>
+</html>
